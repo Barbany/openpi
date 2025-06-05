@@ -1,15 +1,20 @@
-from collections.abc import Sequence
+"""
+Adapted policy.py to drop openpi-client dependency.
+
+Make sure _BasePolicy is the same in both packages if used together.
+"""
+import abc
 import logging
 import pathlib
 import time
-from typing import Any, TypeAlias
+from collections.abc import Sequence
+from typing import Any, Dict, TypeAlias
 
 import flax
 import flax.traverse_util
 import jax
 import jax.numpy as jnp
 import numpy as np
-from openpi_client import base_policy as _base_policy
 from typing_extensions import override
 
 from openpi import transforms as _transforms
@@ -17,7 +22,18 @@ from openpi.models import model as _model
 from openpi.shared import array_typing as at
 from openpi.shared import nnx_utils
 
-BasePolicy: TypeAlias = _base_policy.BasePolicy
+
+class _BasePolicy(abc.ABC):
+    @abc.abstractmethod
+    def infer(self, obs: Dict) -> Dict:
+        """Infer actions from observations."""
+
+    def reset(self) -> None:
+        """Reset the policy to its initial state."""
+        pass
+
+
+BasePolicy: TypeAlias = _BasePolicy
 
 
 class Policy(BasePolicy):
@@ -50,9 +66,11 @@ class Policy(BasePolicy):
         self._rng, sample_rng = jax.random.split(self._rng)
         outputs = {
             "state": inputs["state"],
-            "actions": self._sample_actions(sample_rng, _model.Observation.from_dict(inputs), **self._sample_kwargs),
+            "actions": self._sample_actions(
+                sample_rng, _model.Observation.from_dict(inputs), **self._sample_kwargs
+            ),
         }
-        # Unbatch and convert to np.ndarray.        # Unbatch and convert to np.ndarray.
+        # Unbatch and convert to np.ndarray.
         outputs = jax.tree.map(lambda x: np.asarray(x[0, ...]), outputs)
         model_time = time.monotonic() - start_time
 
@@ -67,10 +85,10 @@ class Policy(BasePolicy):
         return self._metadata
 
 
-class PolicyRecorder(_base_policy.BasePolicy):
+class PolicyRecorder(BasePolicy):
     """Records the policy's behavior to disk."""
 
-    def __init__(self, policy: _base_policy.BasePolicy, record_dir: str):
+    def __init__(self, policy: BasePolicy, record_dir: str):
         self._policy = policy
 
         logging.info(f"Dumping policy records to: {record_dir}")
